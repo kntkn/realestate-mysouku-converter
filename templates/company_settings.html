@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}会社情報設定 - マイソク自動変換システム{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <!-- ヘッダー -->
+        <div class="text-center mb-4">
+            <h1 class="display-6 text-primary">
+                <i class="fas fa-building me-3"></i>
+                会社情報設定
+            </h1>
+            <p class="lead text-muted">
+                マイソク生成時に使用される会社情報を設定します
+            </p>
+        </div>
+
+        <!-- 設定フォーム -->
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-edit me-2"></i>
+                    基本情報
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="companyForm">
+                    <div class="row">
+                        <!-- 会社名 -->
+                        <div class="col-md-6 mb-3">
+                            <label for="companyName" class="form-label">
+                                <i class="fas fa-building me-1"></i>
+                                会社名 <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="companyName" name="company_name" 
+                                   value="{{ company_info.company_name if company_info else '' }}" required>
+                        </div>
+
+                        <!-- 会社名（フリガナ） -->
+                        <div class="col-md-6 mb-3">
+                            <label for="companyNameKana" class="form-label">
+                                <i class="fas fa-font me-1"></i>
+                                会社名（フリガナ）
+                            </label>
+                            <input type="text" class="form-control" id="companyNameKana" name="company_name_kana"
+                                   value="{{ company_info.company_name_kana if company_info else '' }}">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- 郵便番号 -->
+                        <div class="col-md-4 mb-3">
+                            <label for="postalCode" class="form-label">
+                                <i class="fas fa-mail-bulk me-1"></i>
+                                郵便番号
+                            </label>
+                            <input type="text" class="form-control" id="postalCode" name="postal_code"
+                                   placeholder="123-4567" value="{{ company_info.postal_code if company_info else '' }}">
+                        </div>
+
+                        <!-- 住所 -->
+                        <div class="col-md-8 mb-3">
+                            <label for="address" class="form-label">
+                                <i class="fas fa-map-marker-alt me-1"></i>
+                                住所 <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="address" name="address"
+                                   value="{{ company_info.address if company_info else '' }}" required>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- 電話番号 -->
+                        <div class="col-md-6 mb-3">
+                            <label for="phone" class="form-label">
+                                <i class="fas fa-phone me-1"></i>
+                                電話番号 <span class="text-danger">*</span>
+                            </label>
+                            <input type="tel" class="form-control" id="phone" name="phone"
+                                   placeholder="03-1234-5678" value="{{ company_info.phone if company_info else '' }}" required>
+                        </div>
+
+                        <!-- FAX番号 -->
+                        <div class="col-md-6 mb-3">
+                            <label for="fax" class="form-label">
+                                <i class="fas fa-fax me-1"></i>
+                                FAX番号
+                            </label>
+                            <input type="tel" class="form-control" id="fax" name="fax"
+                                   placeholder="03-1234-5679" value="{{ company_info.fax if company_info else '' }}">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- メールアドレス -->
+                        <div class="col-md-6 mb-3">
+                            <label for="email" class="form-label">
+                                <i class="fas fa-envelope me-1"></i>
+                                メールアドレス
+                            </label>
+                            <input type="email" class="form-control" id="email" name="email"
+                                   placeholder="info@example.com" value="{{ company_info.email if company_info else '' }}">
+                        </div>
+
+                        <!-- ウェブサイト -->
+                        <div class="col-md-6 mb-3">
+                            <label for="website" class="form-label">
+                                <i class="fas fa-globe me-1"></i>
+                                ウェブサイト
+                            </label>
+                            <input type="url" class="form-control" id="website" name="website"
+                                   placeholder="https://example.com" value="{{ company_info.website if company_info else '' }}">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- 免許番号 -->
+                        <div class="col-md-6 mb-3">
+                            <label for="licenseNumber" class="form-label">
+                                <i class="fas fa-certificate me-1"></i>
+                                宅建業免許番号 <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="licenseNumber" name="license_number"
+                                   placeholder="東京都知事(1)第12345号" value="{{ company_info.license_number if company_info else '' }}" required>
+                        </div>
+
+                        <!-- 代表者名 -->
+                        <div class="col-md-6 mb-3">
+                            <label for="representativeName" class="form-label">
+                                <i class="fas fa-user-tie me-1"></i>
+                                代表者名
+                            </label>
+                            <input type="text" class="form-control" id="representativeName" name="representative_name"
+                                   value="{{ company_info.representative_name if company_info else '' }}">
+                        </div>
+                    </div>
+
+                    <!-- ロゴファイル -->
+                    <div class="mb-4">
+                        <label for="logo" class="form-label">
+                            <i class="fas fa-image me-1"></i>
+                            会社ロゴ（オプション）
+                        </label>
+                        <input type="file" class="form-control" id="logo" name="logo" accept=".png,.jpg,.jpeg">
+                        <div class="form-text">PNG, JPG形式のファイルを選択してください（最大2MB）</div>
+                        
+                        {% if company_info and company_info.logo_path %}
+                        <div class="mt-2">
+                            <small class="text-muted">現在のロゴ: {{ company_info.logo_path.split('/')[-1] }}</small>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- 保存ボタン -->
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-primary btn-lg" id="saveBtn">
+                            <i class="fas fa-save me-2"></i>
+                            保存
+                        </button>
+                        
+                        <div class="spinner-border text-primary ms-3 d-none" role="status" id="saveSpinner">
+                            <span class="visually-hidden">保存中...</span>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 注意事項 -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    注意事項
+                </h5>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0">
+                    <li class="mb-2">
+                        <strong>必須項目</strong>：会社名、住所、電話番号、宅建業免許番号は必ず入力してください。
+                    </li>
+                    <li class="mb-2">
+                        <strong>ロゴ画像</strong>：アップロードしたロゴ画像は生成されるマイソクに表示されます。
+                    </li>
+                    <li class="mb-2">
+                        <strong>データ保存</strong>：入力された情報は安全にローカルデータベースに保存されます。
+                    </li>
+                    <li>
+                        <strong>更新</strong>：設定はいつでも変更可能です。変更後は新しい情報でマイソクが生成されます。
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/company.js') }}"></script>
+{% endblock %}

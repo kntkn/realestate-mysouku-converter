@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}PDF変換 - マイソク自動変換システム{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <!-- ヘッダーセクション -->
+        <div class="text-center mb-5">
+            <h1 class="display-6 text-primary">
+                <i class="fas fa-magic me-3"></i>
+                レインズPDF → 弊社マイソク
+            </h1>
+            <p class="lead text-muted">
+                レインズでダウンロードしたマイソクPDFを、弊社仕様のマイソクに自動変換します
+            </p>
+        </div>
+
+        <!-- 会社情報確認 -->
+        {% if not company_info %}
+        <div class="alert alert-warning" role="alert">
+            <h5 class="alert-heading">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                会社情報が未設定です
+            </h5>
+            <p class="mb-2">マイソクを生成するには、まず会社情報を設定してください。</p>
+            <a href="{{ url_for('company_settings') }}" class="btn btn-warning">
+                <i class="fas fa-cog me-1"></i>
+                会社情報を設定する
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- Step 1: PDF アップロード -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-upload me-2"></i>
+                    Step 1: レインズPDFをアップロード
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="pdfFile" class="form-label">PDFファイルを選択</label>
+                        <input type="file" class="form-control" id="pdfFile" name="pdf_file" accept=".pdf" required>
+                        <div class="form-text">最大ファイルサイズ: 16MB</div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary" id="uploadBtn">
+                        <i class="fas fa-upload me-1"></i>
+                        アップロード・解析実行
+                    </button>
+                    
+                    <div class="spinner-border text-primary ms-3 d-none" role="status" id="uploadSpinner">
+                        <span class="visually-hidden">解析中...</span>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Step 2: データ確認・編集 -->
+        <div class="card mb-4 d-none" id="dataCard">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-edit me-2"></i>
+                    Step 2: 抽出データの確認・編集
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="extractedData"></div>
+                
+                <div class="mt-3">
+                    <button type="button" class="btn btn-success" id="generateBtn">
+                        <i class="fas fa-file-pdf me-1"></i>
+                        マイソクPDF生成
+                    </button>
+                    
+                    <div class="spinner-border text-success ms-3 d-none" role="status" id="generateSpinner">
+                        <span class="visually-hidden">生成中...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: ダウンロード -->
+        <div class="card mb-4 d-none" id="downloadCard">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-download me-2"></i>
+                    Step 3: 生成完了
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-success" role="alert">
+                    <h5 class="alert-heading">
+                        <i class="fas fa-check-circle me-2"></i>
+                        マイソクの生成が完了しました！
+                    </h5>
+                    <p class="mb-3">弊社仕様のマイソクPDFが生成されました。</p>
+                    
+                    <a href="#" class="btn btn-info" id="downloadLink">
+                        <i class="fas fa-download me-1"></i>
+                        PDFをダウンロード
+                    </a>
+                    
+                    <button type="button" class="btn btn-outline-secondary ms-2" id="resetBtn">
+                        <i class="fas fa-redo me-1"></i>
+                        新しいPDFを変換
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 使い方 -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    使い方
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <i class="fas fa-upload fa-3x text-primary mb-3"></i>
+                            <h6>1. PDFアップロード</h6>
+                            <p class="small text-muted">レインズからダウンロードしたマイソクPDFを選択してアップロード</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <i class="fas fa-edit fa-3x text-success mb-3"></i>
+                            <h6>2. データ確認</h6>
+                            <p class="small text-muted">自動抽出されたデータを確認・必要に応じて編集</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <i class="fas fa-download fa-3x text-info mb-3"></i>
+                            <h6>3. ダウンロード</h6>
+                            <p class="small text-muted">弊社仕様に変換されたマイソクPDFをダウンロード</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+{% endblock %}
