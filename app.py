@@ -252,10 +252,20 @@ def detect_footer_region_with_claude(pdf_data, page_num=None):
         
         # JSONレスポンスを解析
         import json
-        result = json.loads(response_text)
-        
-        logger.info(f"Claude API 視覚的フッター検出結果: {result}")
-        return result
+        try:
+            result = json.loads(response_text)
+            
+            # 必須フィールドの検証
+            if 'bottom_height' not in result or not isinstance(result['bottom_height'], (int, float)):
+                logger.warning(f"Claude API応答に問題: bottom_heightが無効 - {result}")
+                return {'bottom_height': 30, 'confidence': 40, 'reason': 'APIレスポンス検証失敗'}
+            
+            logger.info(f"Claude API 視覚的フッター検出結果: {result}")
+            return result
+        except json.JSONDecodeError as json_error:
+            logger.error(f"Claude API JSON解析エラー: {str(json_error)}")
+            logger.error(f"生レスポンス: {response_text[:500]}")
+            return {'bottom_height': 30, 'confidence': 30, 'reason': 'JSON解析失敗'}
         
     except Exception as e:
         logger.error(f"Claude API エラー: {str(e)}")
@@ -293,15 +303,21 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
             logger.info(f"=== ページ {page_num + 1} の処理開始 ===")
             
             # ページごとにフッター領域を個別検出
-            page_footer_region = detect_footer_region_with_claude(pdf_data, page_num)
-            if not page_footer_region:
-                # このページ用のフォールバック
+            try:
+                page_footer_region = detect_footer_region_with_claude(pdf_data, page_num)
+                if not page_footer_region:
+                    # このページ用のフォールバック
+                    page_footer_region = {'bottom_height': 30, 'confidence': 50}
+                    logger.info(f"ページ{page_num + 1}: デフォルト領域(30mm)を使用")
+            except Exception as detection_error:
+                logger.error(f"ページ{page_num + 1}の検出エラー: {str(detection_error)}")
                 page_footer_region = {'bottom_height': 30, 'confidence': 50}
-                logger.info(f"ページ{page_num + 1}: デフォルト領域(30mm)を使用")
+                logger.info(f"ページ{page_num + 1}: エラー時デフォルト領域(30mm)を使用")
             
             page_confidence = page_footer_region.get('confidence', 50)
             page_detected_height = page_footer_region.get('bottom_height', 30)
             logger.info(f"ページ{page_num + 1}: 検出高さ{page_detected_height}mm、信頼度{page_confidence}%")
+            
             try:
                 # オーバーレイページを作成
                 overlay_buffer = BytesIO()
