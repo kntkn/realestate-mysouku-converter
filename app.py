@@ -55,6 +55,20 @@ except Exception as e:
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def extract_text_from_pdf_page(pdf_data, page_num):
+    """PDFの特定ページからテキストを抽出"""
+    try:
+        with pdfplumber.open(BytesIO(pdf_data)) as pdf:
+            if page_num < len(pdf.pages):
+                page = pdf.pages[page_num]
+                return page.extract_text() or ""
+            else:
+                logger.warning(f"ページ{page_num + 1}が存在しません")
+                return ""
+    except Exception as e:
+        logger.error(f"ページ{page_num + 1}のテキスト抽出エラー: {str(e)}")
+        return ""
+
 def extract_text_from_pdf(file_data):
     """PDFからテキストを抽出（簡易版）"""
     try:
@@ -158,15 +172,20 @@ def create_page_with_footer_overlay(original_page, overlay_page, page_width, pag
         logger.error(f"フォールバック処理エラー: {str(e)}")
         return original_page
 
-def detect_footer_region_with_claude(pdf_data):
+def detect_footer_region_with_claude(pdf_data, page_num=None):
     """Claude APIを使用してPDFのフッター領域を視覚的レイアウトで検出"""
     if not CLAUDE_AVAILABLE:
         logger.warning("Claude API利用不可、大きめのデフォルト領域を使用")
         return {'bottom_height': 60, 'confidence': 60}  # 60mm
     
     try:
-        # PDFからテキストを抽出
-        text_content = extract_text_from_pdf(pdf_data)
+        # PDFからテキストを抽出（ページ指定に対応）
+        if page_num is not None:
+            text_content = extract_text_from_pdf_page(pdf_data, page_num)
+            logger.info(f"ページ{page_num + 1}のテキスト抽出完了: {len(text_content)}文字")
+        else:
+            text_content = extract_text_from_pdf(pdf_data)
+            logger.info(f"全PDFのテキスト抽出完了: {len(text_content)}文字")
         
         # Claude APIでフッター領域を分析（視覚的レイアウト重視プロンプト）
         response = claude_client.messages.create(
@@ -177,45 +196,52 @@ def detect_footer_region_with_claude(pdf_data):
                 {
                     "role": "user",
                     "content": f"""
-以下は不動産マイソクPDFから抽出したテキストです。物件情報エリアと事業者フッターエリアを分ける視覚的区切りを検出してください。
+不動産マイソクPDFの事業者フッター領域を精密に検出してください。物件情報を侵害せず、フッター部分のみを正確に特定する必要があります。
 
-【重要】視覚的フッター区切りの特徴（テスト素材で確認済み）:
-1. カラー帯・背景色（緑色帯、青色帯、水色帯など）
-2. 枠線・フレーム（点線囲み、実線囲み、角丸フレーム）
-3. 区切り線・罫線（実線、点線、二重線）
-4. 空白スペース（物件情報との間の明確な余白）
-5. レイアウト変化（文字配置の変化、段組み変更）
+【最重要】検出精度の向上:
+以下の事業者情報パターンを最下部から検索し、その直前で物件情報との境界を特定してください。
 
-【フッター検出優先順位】:
-1. 視覚的区切り（線、帯、枠）がある → 高精度
-2. レイアウト変化 + 事業者情報 → 中精度
-3. 事業者情報のみ → 低精度
+【事業者情報の必須要素】:
+1. 会社名（株式会社○○、○○不動産、有限会社○○）
+2. 宅建業免許番号（東京都知事（○）第○○号、国土交通大臣（○）第○○号）
+3. 連絡先（TEL、FAX、住所）
+4. 取引形態（仲介、媒介、代理、売主）
+5. AD情報、手数料情報
 
-【事業者情報キーワード（参考）】:
-- 会社名、不動産、株式会社、有限会社、コーポレーション
-- 免許番号、国土交通大臣、知事、宅建
-- 住所、TEL、FAX、電話、連絡先
-- 代理、媒介、売主、仲介
+【精密な境界検出手法】:
+1. テキストを下から上に解析
+2. 事業者情報の開始行を特定
+3. 物件情報との間の視覚的区切りを確認
+4. 必要最小限の高さを計算
 
-【白塗り高さ判定基準（テスト素材ベース）】:
-- 単色帯のみ: 15-20mm
-- 帯 + 文字情報: 20-25mm  
-- 枠線 + 複数行: 25-30mm
-- フレーム囲み + 複雑レイアウト: 30-40mm
-- 点線枠 + 装飾的要素: 35-45mm
+【高さ算出基準（保守的）】:
+- 1-2行の簡素なフッター: 10-15mm
+- 3-4行の標準フッター: 15-25mm
+- 5-6行の詳細フッター: 25-35mm
+- 複雑なレイアウト/画像有: 35-50mm
+- 特殊な装飾/大きなロゴ: 50-70mm（例外的）
 
-【入力テキスト（レイアウト構造を重視）】:
+【物件情報保護】:
+以下は絶対に侵害してはいけません:
+- 賃料、価格情報
+- 間取り、専有面積
+- 所在地、最寄り駅
+- 物件写真、間取り図
+- 設備情報、築年月
+
+【入力テキスト】:
 {text_content[-2000:]}
 
-【出力形式】:
+【必須出力】:
 {{
     "footer_detected": true/false,
-    "bottom_height": 数値（ミリメートル）,
-    "confidence": 数値（0-100の信頼度）,
-    "visual_separator": "検出された区切り要素（帯/線/枠など）",
-    "layout_pattern": "レイアウトパターンの説明",
-    "detected_elements": ["事業者要素1", "事業者要素2", ...],
-    "reason": "視覚的判定の詳細理由"
+    "bottom_height": 数値（ミリメートル、保守的に算出）,
+    "confidence": 数値（0-100、厳格評価）,
+    "boundary_line": "事業者情報開始行の内容",
+    "protected_content": "保護すべき物件情報の最下部行",
+    "detected_elements": ["検出された事業者要素"],
+    "safety_margin": "なぜこの高さが安全か",
+    "reason": "境界判定の根拠"
 }}
 """
                 }
@@ -262,17 +288,29 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
         else:
             page_width, page_height = A4  # デフォルト
         
-        # 各ページを処理
+        # 各ページを処理（ページごとに個別検出）
         for page_num, page in enumerate(pdf_reader.pages):
+            logger.info(f"=== ページ {page_num + 1} の処理開始 ===")
+            
+            # ページごとにフッター領域を個別検出
+            page_footer_region = detect_footer_region_with_claude(pdf_data, page_num)
+            if not page_footer_region:
+                # このページ用のフォールバック
+                page_footer_region = {'bottom_height': 30, 'confidence': 50}
+                logger.info(f"ページ{page_num + 1}: デフォルト領域(30mm)を使用")
+            
+            page_confidence = page_footer_region.get('confidence', 50)
+            page_detected_height = page_footer_region.get('bottom_height', 30)
+            logger.info(f"ページ{page_num + 1}: 検出高さ{page_detected_height}mm、信頼度{page_confidence}%")
             try:
                 # オーバーレイページを作成
                 overlay_buffer = BytesIO()
                 overlay_canvas = canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
                 
                 # フッター部分を白で塗りつぶし
-                # 信頼度が低い場合は安全な高さを使用
-                confidence = footer_region.get('confidence', 50)
-                detected_height = footer_region.get('bottom_height', 25)
+                # 信頼度が低い場合は安全な高さを使用（ページ個別値を使用）
+                confidence = page_confidence
+                detected_height = page_detected_height
                 
                 # 信頼度に応じた高さ調整
                 if confidence < 60:
@@ -683,25 +721,8 @@ def process_pdf_simple():
             logger.error(f"ファイル読み込みエラー: {str(e)}")
             return jsonify({'status': 'error', 'message': 'ファイル読み込みに失敗しました'})
         
-        # Claude APIでフッター領域を検出
-        try:
-            footer_region = detect_footer_region_with_claude(file_data)
-            if not footer_region:
-                # フォールバック: デフォルト領域
-                footer_region = {'bottom_height': 60, 'confidence': 70}  # 60mm（安全な大きめの値）
-                logger.info("Claude API利用不可、大きめのデフォルト領域(60mm)を使用")
-            else:
-                confidence = footer_region.get('confidence', 50)
-                detected_elements = footer_region.get('detected_elements', [])
-                visual_separator = footer_region.get('visual_separator', '不明')
-                layout_pattern = footer_region.get('layout_pattern', '不明')
-                logger.info(f"Claude API検出結果: {footer_region}")
-                logger.info(f"信頼度: {confidence}%, 視覚的区切り: {visual_separator}")
-                logger.info(f"レイアウトパターン: {layout_pattern}")
-                logger.info(f"検出要素: {detected_elements}")
-        except Exception as e:
-            logger.error(f"フッター検出エラー: {str(e)}")
-            footer_region = {'bottom_height': 60, 'confidence': 50}  # エラー時も60mm
+        # ページ個別処理のため、全体検出は不要
+        logger.info("ページ個別でのフッター検出を開始")
         
         # PDFを変換
         try:
