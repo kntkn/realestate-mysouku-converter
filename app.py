@@ -436,9 +436,14 @@ def convert_pdf_footer(pdf_data, company_info):
                 overlay_canvas = canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
                 
                 # フッター部分を白で塗りつぶし
-                # グローバル設定を使用（全ページ統一）
-                confidence = global_confidence
-                detected_height = global_detected_height
+                # *** ページ個別検出に変更 ***
+                logger.info(f"ページ{page_num + 1}: 個別フッター検出実行")
+                page_footer_result = detect_footer_with_pdfplumber(pdf_data, page_num)
+                
+                confidence = page_footer_result.get('confidence', 60)
+                detected_height = page_footer_result.get('bottom_height', 40)
+                
+                logger.info(f"ページ{page_num + 1}: 個別検出結果 - 高さ{detected_height}mm、信頼度{confidence}%")
                 
                 # 信頼度に応じた高さ調整
                 if confidence < 60:
