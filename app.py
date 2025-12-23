@@ -776,73 +776,72 @@ def test_pymupdf_only():
     try:
         logger.info("🧪 PyMuPDF単体テスト開始")
         
-        # Step 1: リクエスト確認
+        # まず基本チェック
         if 'pdf_file' not in request.files:
             return jsonify({'status': 'error', 'message': 'ファイルなし'})
         
         file = request.files['pdf_file']
-        file_data = file.read()
-        logger.info(f"🧪 ファイル読み込み成功: {len(file_data)} bytes")
+        if file.filename == '':
+            return jsonify({'status': 'error', 'message': 'ファイル選択なし'})
         
-        # Step 2: PyMuPDFインポート確認
+        # PyMuPDFインポートテスト
         try:
             import fitz
-            logger.info(f"🧪 PyMuPDF import成功: {getattr(fitz, '__version__', 'unknown')}")
-            fitz_status = True
-        except ImportError as import_error:
-            logger.error(f"🧪 PyMuPDF import失敗: {import_error}")
+            pymupdf_version = fitz.version[0] if hasattr(fitz, 'version') else 'unknown'
+            logger.info(f"✅ PyMuPDF import成功: v{pymupdf_version}")
+        except Exception as import_e:
+            logger.error(f"❌ PyMuPDF import失敗: {import_e}")
             return jsonify({
-                'status': 'error',
-                'message': f'PyMuPDF import失敗: {str(import_error)}',
-                'fitz_available': False
+                'status': 'error', 
+                'message': f'PyMuPDF import失敗: {str(import_e)}',
+                'import_error': True
             })
         
-        # Step 3: シンプルなPDF開くテスト
+        file_data = file.read()
+        logger.info(f"📄 ファイルサイズ: {len(file_data)} bytes")
+        
+        # PyMuPDF基本テスト
         try:
             pdf_document = fitz.open(stream=file_data, filetype="pdf")
             page_count = len(pdf_document)
+            logger.info(f"📚 ページ数: {page_count}")
+            
+            if page_count > 0:
+                page = pdf_document[0]
+                page_size = (page.rect.width, page.rect.height)
+                text_blocks = len(page.get_text("blocks"))
+                logger.info(f"📐 ページサイズ: {page_size}")
+                logger.info(f"🔤 テキストブロック数: {text_blocks}")
+            else:
+                page_size = (0, 0)
+                text_blocks = 0
+            
             pdf_document.close()
-            logger.info(f"🧪 PDF開く成功: {page_count}ページ")
-            pdf_open_status = True
-        except Exception as pdf_error:
-            logger.error(f"🧪 PDF開くエラー: {pdf_error}")
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'PyMuPDF基本テスト成功',
+                'pymupdf_version': pymupdf_version,
+                'page_count': page_count,
+                'page_size': page_size,
+                'text_blocks': text_blocks,
+                'file_size': len(file_data)
+            })
+            
+        except Exception as pdf_e:
+            logger.error(f"❌ PyMuPDF PDF処理エラー: {pdf_e}")
             return jsonify({
                 'status': 'error',
-                'message': f'PDF開くエラー: {str(pdf_error)}',
-                'fitz_available': True,
-                'pdf_open_failed': True
+                'message': f'PyMuPDF PDF処理エラー: {str(pdf_e)}',
+                'pdf_error': True
             })
-        
-        # Step 4: 実際の検出関数テスト
-        try:
-            result = detect_footer_region_with_precise_detection(file_data, 0)
-            logger.info(f"🧪 検出関数成功: {result}")
-        except Exception as detection_error:
-            logger.error(f"🧪 検出関数エラー: {detection_error}")
-            logger.error(f"🧪 検出関数詳細: {traceback.format_exc()}")
-            return jsonify({
-                'status': 'error',
-                'message': f'検出関数エラー: {str(detection_error)}',
-                'fitz_available': True,
-                'pdf_open_success': True,
-                'detection_failed': True
-            })
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'PyMuPDF完全テスト成功',
-            'pymupdf_result': result,
-            'fitz_available': True,
-            'pdf_pages': page_count
-        })
-        
+            
     except Exception as e:
-        logger.error(f"🧪 予期しないエラー: {str(e)}")
-        logger.error(f"🧪 予期しない詳細: {traceback.format_exc()}")
+        logger.error(f"❌ PyMuPDF全般エラー: {e}")
         return jsonify({
-            'status': 'error', 
-            'message': f'予期しないエラー: {str(e)}',
-            'error_type': type(e).__name__
+            'status': 'error',
+            'message': f'PyMuPDF全般エラー: {str(e)}',
+            'general_error': True
         })
 
 @app.route('/')
