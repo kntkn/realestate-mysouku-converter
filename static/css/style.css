@@ -7,15 +7,18 @@
     --danger-color: #dc3545;
     --warning-color: #ffc107;
     --info-color: #0dcaf0;
-    --light-color: #f8f9fa;
+    --light-color: #ffffff;
     --dark-color: #212529;
+    --bg-color: #ffffff;
+    --text-color: #212529;
+    --border-color: #e9ecef;
 }
 
 /* 全体のスタイル */
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans JP', sans-serif;
-    background-color: #f8f9fa;
-    color: #333;
+    background-color: #ffffff;
+    color: #212529;
     line-height: 1.6;
 }
 
@@ -173,7 +176,7 @@ body {
 .progress {
     height: 8px;
     border-radius: 4px;
-    background-color: #f8f9fa;
+    background-color: #e9ecef;
 }
 
 .progress-bar {
@@ -295,29 +298,27 @@ footer {
     }
 }
 
-/* ダークモード対応（オプション） */
-@media (prefers-color-scheme: dark) {
-    body {
-        background-color: #121212;
-        color: #ffffff;
-    }
-    
-    .card {
-        background-color: #1e1e1e;
-        color: #ffffff;
-    }
-    
-    .form-control {
-        background-color: #2d2d2d;
-        border-color: #404040;
-        color: #ffffff;
-    }
-    
-    .form-control:focus {
-        background-color: #2d2d2d;
-        border-color: var(--primary-color);
-        color: #ffffff;
-    }
+/* ライトモード強制 */
+body {
+    background-color: #ffffff !important;
+    color: #212529 !important;
+}
+
+.card {
+    background-color: #ffffff !important;
+    color: #212529 !important;
+}
+
+.form-control {
+    background-color: #ffffff !important;
+    border-color: #e9ecef !important;
+    color: #212529 !important;
+}
+
+.form-control:focus {
+    background-color: #ffffff !important;
+    border-color: var(--primary-color) !important;
+    color: #212529 !important;
 }
 
 /* 印刷スタイル */

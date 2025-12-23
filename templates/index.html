@@ -9,10 +9,10 @@
         <div class="text-center mb-5">
             <h1 class="display-6 text-primary">
                 <i class="fas fa-magic me-3"></i>
-                レインズPDF → 弊社マイソク
+                マイソク会社名自動変換
             </h1>
             <p class="lead text-muted">
-                レインズでダウンロードしたマイソクPDFを、弊社仕様のマイソクに自動変換します
+                PDFを選択して「実行」を押すだけで、フッターの会社名を御社名に自動変換します
             </p>
         </div>
 
@@ -31,84 +31,82 @@
         </div>
         {% endif %}
 
-        <!-- Step 1: PDF アップロード -->
+        <!-- PDF変換エリア -->
         <div class="card mb-4">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">
-                    <i class="fas fa-upload me-2"></i>
-                    Step 1: レインズPDFをアップロード
-                </h5>
-            </div>
-            <div class="card-body">
-                <form id="uploadForm" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label for="pdfFile" class="form-label">PDFファイルを選択</label>
-                        <input type="file" class="form-control" id="pdfFile" name="pdf_file" accept=".pdf" required>
-                        <div class="form-text">最大ファイルサイズ: 16MB</div>
+            <div class="card-body text-center p-5">
+                <form id="processForm" enctype="multipart/form-data">
+                    <!-- ファイル選択エリア -->
+                    <div class="file-upload-area mb-4" onclick="document.getElementById('pdfFile').click()">
+                        <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted mb-2">PDFファイルをドロップまたはクリック</h5>
+                        <p class="text-muted">複数ファイル対応 | 最大16MB/ファイル</p>
+                        <input type="file" class="d-none" id="pdfFile" name="pdf_file" accept=".pdf" multiple required>
                     </div>
                     
-                    <button type="submit" class="btn btn-primary" id="uploadBtn">
-                        <i class="fas fa-upload me-1"></i>
-                        アップロード・解析実行
+                    <!-- 選択されたファイル一覧 -->
+                    <div id="fileList" class="mb-4 d-none">
+                        <h6 class="text-muted">選択されたファイル:</h6>
+                        <div id="selectedFiles" class="border rounded p-3 bg-light">
+                        </div>
+                    </div>
+                    
+                    <!-- PDF出力形式選択 -->
+                    <div id="outputOptions" class="mb-4 d-none">
+                        <div class="card border-0 bg-light">
+                            <div class="card-body p-3">
+                                <h6 class="text-muted mb-3">PDF出力形式</h6>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="outputFormat" id="separateFiles" value="separate" checked>
+                                            <label class="form-check-label" for="separateFiles">
+                                                <i class="fas fa-file-pdf me-1 text-danger"></i>
+                                                <strong>ファイル毎に分離</strong>
+                                                <br><small class="text-muted">各PDFファイルが個別にダウンロード</small>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="outputFormat" id="mergedFile" value="merged">
+                                            <label class="form-check-label" for="mergedFile">
+                                                <i class="fas fa-file-pdf me-1 text-success"></i>
+                                                <strong>1つのPDFに統合</strong>
+                                                <br><small class="text-muted">全てのページを1つのPDFにまとめてダウンロード</small>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 実行ボタン -->
+                    <button type="submit" class="btn btn-primary btn-lg px-5" id="processBtn" disabled>
+                        <i class="fas fa-magic me-2"></i>
+                        自動変換実行
                     </button>
                     
-                    <div class="spinner-border text-primary ms-3 d-none" role="status" id="uploadSpinner">
-                        <span class="visually-hidden">解析中...</span>
+                    <!-- プログレス表示 -->
+                    <div id="processingStatus" class="mt-4 d-none">
+                        <div class="spinner-border text-primary mb-3" role="status"></div>
+                        <div id="statusMessage" class="text-muted">処理中...</div>
                     </div>
                 </form>
             </div>
         </div>
 
-        <!-- Step 2: データ確認・編集 -->
-        <div class="card mb-4 d-none" id="dataCard">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0">
-                    <i class="fas fa-edit me-2"></i>
-                    Step 2: 抽出データの確認・編集
-                </h5>
-            </div>
-            <div class="card-body">
-                <div id="extractedData"></div>
-                
-                <div class="mt-3">
-                    <button type="button" class="btn btn-success" id="generateBtn">
-                        <i class="fas fa-file-pdf me-1"></i>
-                        マイソクPDF生成
-                    </button>
-                    
-                    <div class="spinner-border text-success ms-3 d-none" role="status" id="generateSpinner">
-                        <span class="visually-hidden">生成中...</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Step 3: ダウンロード -->
+        <!-- 完了・ダウンロード -->
         <div class="card mb-4 d-none" id="downloadCard">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0">
-                    <i class="fas fa-download me-2"></i>
-                    Step 3: 生成完了
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="alert alert-success" role="alert">
-                    <h5 class="alert-heading">
-                        <i class="fas fa-check-circle me-2"></i>
-                        マイソクの生成が完了しました！
-                    </h5>
-                    <p class="mb-3">弊社仕様のマイソクPDFが生成されました。</p>
-                    
-                    <a href="#" class="btn btn-info" id="downloadLink">
-                        <i class="fas fa-download me-1"></i>
-                        PDFをダウンロード
-                    </a>
-                    
-                    <button type="button" class="btn btn-outline-secondary ms-2" id="resetBtn">
-                        <i class="fas fa-redo me-1"></i>
-                        新しいPDFを変換
-                    </button>
+            <div class="card-body text-center p-5">
+                <div id="downloadContent">
+                    <!-- 動的にダウンロードリンクを生成 -->
                 </div>
+                
+                <button type="button" class="btn btn-outline-secondary mt-3" id="resetBtn">
+                    <i class="fas fa-redo me-1"></i>
+                    新しいPDFを処理
+                </button>
             </div>
         </div>
 
@@ -122,27 +120,26 @@
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-4">
+                    <div class="col-md-6">
                         <div class="text-center">
                             <i class="fas fa-upload fa-3x text-primary mb-3"></i>
-                            <h6>1. PDFアップロード</h6>
-                            <p class="small text-muted">レインズからダウンロードしたマイソクPDFを選択してアップロード</p>
+                            <h6>1. PDFを選択</h6>
+                            <p class="small text-muted">マイソクPDFファイルを選択（複数選択可能）</p>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-6">
                         <div class="text-center">
-                            <i class="fas fa-edit fa-3x text-success mb-3"></i>
-                            <h6>2. データ確認</h6>
-                            <p class="small text-muted">自動抽出されたデータを確認・必要に応じて編集</p>
+                            <i class="fas fa-magic fa-3x text-success mb-3"></i>
+                            <h6>2. 実行ボタン</h6>
+                            <p class="small text-muted">AIがフッター部分を検出し、自動的に御社名に変換</p>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="text-center">
-                            <i class="fas fa-download fa-3x text-info mb-3"></i>
-                            <h6>3. ダウンロード</h6>
-                            <p class="small text-muted">弊社仕様に変換されたマイソクPDFをダウンロード</p>
-                        </div>
-                    </div>
+                </div>
+                <div class="mt-3 text-center">
+                    <small class="text-muted">
+                        <i class="fas fa-robot me-1"></i>
+                        AI自動処理: フッター領域検出 → 白塗り → 会社情報配置
+                    </small>
                 </div>
             </div>
         </div>
@@ -151,5 +148,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+<script src="{{ url_for('static', filename='js/simple-converter.js') }}"></script>
 {% endblock %}
