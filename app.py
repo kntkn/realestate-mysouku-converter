@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 from io import BytesIO
 import PyPDF2
 import pdfplumber
+import fitz  # PyMuPDF
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -172,8 +173,8 @@ def create_page_with_footer_overlay(original_page, overlay_page, page_width, pag
         logger.error(f"フォールバック処理エラー: {str(e)}")
         return original_page
 
-def detect_footer_region_with_claude(pdf_data, page_num=None):
-    """Claude APIを使用してPDFのフッター領域を視覚的レイアウトで検出"""
+def detect_footer_region_with_claude_fallback(pdf_data, page_num=0):
+    """Claude APIを使用してフッター領域を検出（フォールバック用）"""
     if not CLAUDE_AVAILABLE:
         logger.warning("Claude API利用不可、大きめのデフォルト領域を使用")
         return {'bottom_height': 60, 'confidence': 60}  # 60mm
@@ -271,7 +272,91 @@ def detect_footer_region_with_claude(pdf_data, page_num=None):
         logger.error(f"Claude API エラー: {str(e)}")
         return None
 
-def convert_pdf_footer(pdf_data, footer_region, company_info):
+def detect_footer_region_with_precise_detection(pdf_data, page_num=0):
+    """PyMuPDFを使用してフッター領域を精密検出"""
+    try:
+        logger.info("🔍 PyMuPDFモジュール確認")
+        logger.info(f"fitz module: {fitz}")
+        logger.info(f"fitz version: {getattr(fitz, '__version__', 'unknown')}")
+        
+        # PyMuPDFでPDFを開く
+        logger.info("📄 PDFファイルをPyMuPDFで開いています...")
+        pdf_document = fitz.open(stream=pdf_data, filetype="pdf")
+        logger.info(f"✅ PDF開く成功: {len(pdf_document)}ページ")
+        
+        if page_num >= len(pdf_document):
+            logger.warning(f"指定ページ{page_num}が存在しません。ページ数: {len(pdf_document)}")
+            page_num = 0
+            
+        page = pdf_document[page_num]
+        page_height = page.rect.height  # pt単位
+        
+        # 単語レベルでテキストと座標を取得
+        words = page.get_text("words")  # [(x0, y0, x1, y1, "text", block_no, line_no, word_no), ...]
+        logger.info(f"ページ{page_num + 1}: {len(words)}個の単語を検出、ページ高さ{page_height:.1f}pt")
+        
+        # フッター候補キーワードの定義
+        footer_keywords = [
+            "株式会社", "有限会社", "合同会社", "宅建", "免許", "知事", "大臣",
+            "TEL", "FAX", "電話", "仲介", "媒介", "代理", "売主", "AD", "手数料"
+        ]
+        
+        # Y座標でグループ化してフッター候補を検索
+        footer_candidates = []
+        footer_y_positions = []
+        
+        for word in words:
+            x0, y0, x1, y1, text, block_no, line_no, word_no = word
+            
+            # フッターキーワードが含まれているかチェック
+            if any(keyword in text for keyword in footer_keywords):
+                footer_candidates.append(word)
+                footer_y_positions.append(y0)
+                logger.info(f"フッターキーワード発見: '{text}' at Y={y0:.1f}")
+        
+        if not footer_candidates:
+            logger.warning("フッターキーワードが見つかりません。デフォルト値を使用")
+            pdf_document.close()
+            return {'bottom_height': 30, 'confidence': 50}
+        
+        # 最も上（Y座標が最小）のフッター要素を特定
+        min_footer_y = min(footer_y_positions)
+        
+        # フッター高さを計算（ページ下部からmin_footer_yまで）
+        footer_height_pt = page_height - min_footer_y
+        footer_height_mm = footer_height_pt * 25.4 / 72  # pt→mm変換
+        
+        # 安全マージンを追加（上方向に5mm拡張）
+        safety_margin_mm = 5
+        final_height_mm = footer_height_mm + safety_margin_mm
+        
+        # 最小・最大値の制限
+        final_height_mm = max(10, min(80, final_height_mm))
+        
+        # 信頼度の計算
+        confidence = min(95, 70 + len(footer_candidates) * 5)
+        
+        logger.info(f"フッター領域検出完了:")
+        logger.info(f"  - 最上フッター位置: Y={min_footer_y:.1f}pt")
+        logger.info(f"  - フッター高さ: {footer_height_pt:.1f}pt = {footer_height_mm:.1f}mm")
+        logger.info(f"  - 安全マージン追加後: {final_height_mm:.1f}mm")
+        logger.info(f"  - 検出キーワード数: {len(footer_candidates)}")
+        logger.info(f"  - 信頼度: {confidence}%")
+        
+        pdf_document.close()
+        
+        return {
+            'bottom_height': round(final_height_mm, 1),
+            'confidence': confidence,
+            'keywords_found': len(footer_candidates),
+            'footer_y_position': min_footer_y
+        }
+        
+    except Exception as e:
+        logger.error(f"PyMuPDF フッター検出エラー: {str(e)}")
+        return {'bottom_height': 40, 'confidence': 60}
+
+def convert_pdf_footer(pdf_data, company_info):
     """PDFのフッター部分を白塗りし、新しい会社情報を配置"""
     try:
         # PDFを読み込み
@@ -298,25 +383,43 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
         else:
             page_width, page_height = A4  # デフォルト
         
-        # 各ページを処理（ページごとに個別検出）
+        # 新しいPyMuPDF精密検出を使用（全ページ同じ設定で安全動作）
+        # まず精密検出を試行、フォールバックでClaude API
+        try:
+            logger.info("🚀 新PyMuPDF精密フッター検出を開始!")
+            global_footer_region = detect_footer_region_with_precise_detection(pdf_data, 0)
+            logger.info(f"🎯 PyMuPDF検出結果: {global_footer_region}")
+            
+            # 信頼度が低い場合はClaude APIを併用
+            if global_footer_region.get('confidence', 0) < 60:
+                logger.info("信頼度が低いため、Claude APIも併用")
+                claude_result = detect_footer_region_with_claude_fallback(pdf_data, 0)
+                if claude_result and claude_result.get('confidence', 0) > global_footer_region.get('confidence', 0):
+                    global_footer_region = claude_result
+                    logger.info("Claude API結果を採用")
+            
+        except Exception as detection_error:
+            logger.error(f"❌ PyMuPDF検出エラー: {str(detection_error)}")
+            import traceback
+            logger.error(f"❌ PyMuPDF詳細エラー: {traceback.format_exc()}")
+            # フォールバック: Claude API
+            try:
+                logger.info("⚠️ フォールバック: Claude API検出を試行")
+                global_footer_region = detect_footer_region_with_claude_fallback(pdf_data, 0)
+                if not global_footer_region:
+                    global_footer_region = {'bottom_height': 40, 'confidence': 70}
+                logger.info(f"✅ Claude API検出完了: {global_footer_region}")
+            except Exception as claude_error:
+                logger.error(f"❌ Claude API検出エラー: {str(claude_error)}")
+                global_footer_region = {'bottom_height': 40, 'confidence': 70}
+        
+        global_confidence = global_footer_region.get('confidence', 70)
+        global_detected_height = global_footer_region.get('bottom_height', 40)
+        logger.info(f"グローバル設定: 検出高さ{global_detected_height}mm、信頼度{global_confidence}%")
+        
+        # 各ページを処理（同じ設定で統一処理）
         for page_num, page in enumerate(pdf_reader.pages):
             logger.info(f"=== ページ {page_num + 1} の処理開始 ===")
-            
-            # ページごとにフッター領域を個別検出
-            try:
-                page_footer_region = detect_footer_region_with_claude(pdf_data, page_num)
-                if not page_footer_region:
-                    # このページ用のフォールバック
-                    page_footer_region = {'bottom_height': 30, 'confidence': 50}
-                    logger.info(f"ページ{page_num + 1}: デフォルト領域(30mm)を使用")
-            except Exception as detection_error:
-                logger.error(f"ページ{page_num + 1}の検出エラー: {str(detection_error)}")
-                page_footer_region = {'bottom_height': 30, 'confidence': 50}
-                logger.info(f"ページ{page_num + 1}: エラー時デフォルト領域(30mm)を使用")
-            
-            page_confidence = page_footer_region.get('confidence', 50)
-            page_detected_height = page_footer_region.get('bottom_height', 30)
-            logger.info(f"ページ{page_num + 1}: 検出高さ{page_detected_height}mm、信頼度{page_confidence}%")
             
             try:
                 # オーバーレイページを作成
@@ -324,9 +427,9 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
                 overlay_canvas = canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
                 
                 # フッター部分を白で塗りつぶし
-                # 信頼度が低い場合は安全な高さを使用（ページ個別値を使用）
-                confidence = page_confidence
-                detected_height = page_detected_height
+                # グローバル設定を使用（全ページ統一）
+                confidence = global_confidence
+                detected_height = global_detected_height
                 
                 # 信頼度に応じた高さ調整
                 if confidence < 60:
@@ -340,25 +443,19 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
                 overlay_canvas.setFillColor(colors.white)
                 overlay_canvas.setStrokeColor(colors.white)
                 
-                # メインの白塗り矩形
-                overlay_canvas.rect(0, 0, page_width, bottom_height_pt, fill=1, stroke=1)
-                
-                # 追加の白塗り（確実性を高めるため）
-                # 完全に覆うために、少し大きめの範囲を3重で塗る
-                for i in range(3):
-                    y_offset = i * (bottom_height_pt / 3)
-                    overlay_canvas.rect(-10, y_offset - 1, page_width + 20, bottom_height_pt / 3 + 3, fill=1, stroke=0)
-                
-                # さらに確実にするため、フッター全体を覆う大きな白い矩形を最後に追加
-                overlay_canvas.rect(-10, -5, page_width + 20, bottom_height_pt + 10, fill=1, stroke=0)
+                # シンプルな白塗り矩形（下部フッター領域のみ）
+                # PDF座標系: 左下が原点(0,0)、Y軸は上向き
+                # bottom_height_ptの高さで、ページ下部からその高さまでを白塗り
+                overlay_canvas.rect(0, 0, page_width, bottom_height_pt, fill=1, stroke=0)
                 
                 logger.info(f"白塗り矩形: X=0, Y=0, Width={page_width/mm:.1f}mm, Height={bottom_height_pt/mm:.1f}mm")
+                logger.info(f"座標詳細: 左下(0,0) → 右上({page_width/mm:.1f}mm, {bottom_height_pt/mm:.1f}mm)")
                 
-                # デバッグ用: 白塗り範囲を赤い枠で囲む（テスト確認用）
+                # デバッグ用: 白塗り範囲を赤い枠で囲む（座標確認用）
                 overlay_canvas.setStrokeColor(colors.red)
-                overlay_canvas.setLineWidth(2)
+                overlay_canvas.setLineWidth(3)  # より見やすく
                 overlay_canvas.rect(0, 0, page_width, bottom_height_pt, fill=0, stroke=1)
-                logger.info("デバッグ: 赤い枠で白塗り範囲をマーキング")
+                logger.info(f"デバッグ: 赤い枠でマーキング - ページ下部から{bottom_height_pt/mm:.1f}mm高さ")
                 
                 # 新しい会社情報を配置
                 add_company_footer(overlay_canvas, company_info, page_width, bottom_height_pt)
@@ -375,6 +472,7 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
                     # デバッグ: オーバーレイ処理の詳細ログ
                     logger.info(f"ページ{page_num + 1}: 白塗り高さ{bottom_height_pt/mm:.1f}mm、信頼度{confidence}%")
                     logger.info(f"ページサイズ: {page_width/mm:.1f}mm x {page_height/mm:.1f}mm")
+                    logger.info(f"PDF座標系: 左下(0,0)が原点、白塗りは下部{bottom_height_pt/mm:.1f}mmを範囲指定")
                     
                     # 元のページとオーバーレイをマージ（オーバーレイを最前面に）
                     try:
@@ -624,6 +722,129 @@ def generate_simple_mysouku(property_data, company_data):
         print(f"PDF生成エラー: {e}")
         return None
 
+@app.route('/test_basic', methods=['POST', 'GET'])
+def test_basic():
+    """最もシンプルなテスト"""
+    return jsonify({
+        'status': 'success',
+        'message': 'Basic test OK',
+        'python_version': '3.x',
+        'flask_working': True
+    })
+
+@app.route('/test_pypdf2_only', methods=['POST'])
+def test_pypdf2_only():
+    """PyPDF2のみのテスト"""
+    try:
+        if 'pdf_file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'ファイルなし'})
+        
+        file = request.files['pdf_file']
+        file_data = file.read()
+        
+        # PyPDF2でPDF処理
+        pdf_input = BytesIO(file_data)
+        pdf_reader = PyPDF2.PdfReader(pdf_input)
+        page_count = len(pdf_reader.pages)
+        
+        # 最初のページからテキスト抽出
+        if page_count > 0:
+            first_page = pdf_reader.pages[0]
+            text = first_page.extract_text()
+            text_length = len(text)
+        else:
+            text_length = 0
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'PyPDF2テスト成功',
+            'page_count': page_count,
+            'text_length': text_length,
+            'pypdf2_working': True
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'PyPDF2エラー: {str(e)}',
+            'pypdf2_working': False
+        })
+
+@app.route('/test_pymupdf_only', methods=['POST'])
+def test_pymupdf_only():
+    """PyMuPDF単体テスト用エンドポイント"""
+    try:
+        logger.info("🧪 PyMuPDF単体テスト開始")
+        
+        # Step 1: リクエスト確認
+        if 'pdf_file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'ファイルなし'})
+        
+        file = request.files['pdf_file']
+        file_data = file.read()
+        logger.info(f"🧪 ファイル読み込み成功: {len(file_data)} bytes")
+        
+        # Step 2: PyMuPDFインポート確認
+        try:
+            import fitz
+            logger.info(f"🧪 PyMuPDF import成功: {getattr(fitz, '__version__', 'unknown')}")
+            fitz_status = True
+        except ImportError as import_error:
+            logger.error(f"🧪 PyMuPDF import失敗: {import_error}")
+            return jsonify({
+                'status': 'error',
+                'message': f'PyMuPDF import失敗: {str(import_error)}',
+                'fitz_available': False
+            })
+        
+        # Step 3: シンプルなPDF開くテスト
+        try:
+            pdf_document = fitz.open(stream=file_data, filetype="pdf")
+            page_count = len(pdf_document)
+            pdf_document.close()
+            logger.info(f"🧪 PDF開く成功: {page_count}ページ")
+            pdf_open_status = True
+        except Exception as pdf_error:
+            logger.error(f"🧪 PDF開くエラー: {pdf_error}")
+            return jsonify({
+                'status': 'error',
+                'message': f'PDF開くエラー: {str(pdf_error)}',
+                'fitz_available': True,
+                'pdf_open_failed': True
+            })
+        
+        # Step 4: 実際の検出関数テスト
+        try:
+            result = detect_footer_region_with_precise_detection(file_data, 0)
+            logger.info(f"🧪 検出関数成功: {result}")
+        except Exception as detection_error:
+            logger.error(f"🧪 検出関数エラー: {detection_error}")
+            logger.error(f"🧪 検出関数詳細: {traceback.format_exc()}")
+            return jsonify({
+                'status': 'error',
+                'message': f'検出関数エラー: {str(detection_error)}',
+                'fitz_available': True,
+                'pdf_open_success': True,
+                'detection_failed': True
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'PyMuPDF完全テスト成功',
+            'pymupdf_result': result,
+            'fitz_available': True,
+            'pdf_pages': page_count
+        })
+        
+    except Exception as e:
+        logger.error(f"🧪 予期しないエラー: {str(e)}")
+        logger.error(f"🧪 予期しない詳細: {traceback.format_exc()}")
+        return jsonify({
+            'status': 'error', 
+            'message': f'予期しないエラー: {str(e)}',
+            'error_type': type(e).__name__
+        })
+
 @app.route('/')
 def index():
     return render_template('index.html', company_info=get_company_info())
@@ -737,13 +958,13 @@ def process_pdf_simple():
             logger.error(f"ファイル読み込みエラー: {str(e)}")
             return jsonify({'status': 'error', 'message': 'ファイル読み込みに失敗しました'})
         
-        # ページ個別処理のため、全体検出は不要
-        logger.info("ページ個別でのフッター検出を開始")
+        # 内部でグローバルフッター検出を実行
+        logger.info("PDF変換でフッター検出を実行")
         
         # PDFを変換
         try:
             logger.info("PDF変換開始")
-            converted_pdf = convert_pdf_footer(file_data, footer_region, company_info)
+            converted_pdf = convert_pdf_footer(file_data, company_info)
             
             if converted_pdf and len(converted_pdf) > 0:
                 logger.info(f"PDF変換成功: {len(converted_pdf)} bytes")
@@ -809,6 +1030,13 @@ def generate_mysouku():
 @app.errorhandler(413)
 def too_large(e):
     return jsonify({'status': 'error', 'message': 'ファイルサイズが大きすぎます（最大16MB）'}), 413
+
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 @app.errorhandler(404)
 def not_found(e):
