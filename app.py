@@ -148,11 +148,21 @@ def parse_property_data(text):
     
     return data
 
+def create_page_with_footer_overlay(original_page, overlay_page, page_width, page_height):
+    """フォールバック: ページ全体を再構築してフッターをオーバーレイ"""
+    try:
+        # 現時点では元のページをそのまま返す（将来の拡張用）
+        logger.warning("フォールバック処理: 現在は元のページを返します")
+        return original_page
+    except Exception as e:
+        logger.error(f"フォールバック処理エラー: {str(e)}")
+        return original_page
+
 def detect_footer_region_with_claude(pdf_data):
     """Claude APIを使用してPDFのフッター領域を視覚的レイアウトで検出"""
     if not CLAUDE_AVAILABLE:
-        logger.warning("Claude API利用不可、デフォルト領域を使用")
-        return None
+        logger.warning("Claude API利用不可、大きめのデフォルト領域を使用")
+        return {'bottom_height': 60, 'confidence': 60}  # 60mm
     
     try:
         # PDFからテキストを抽出
@@ -230,7 +240,15 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
     try:
         # PDFを読み込み
         pdf_input = BytesIO(pdf_data)
-        pdf_reader = PyPDF2.PdfReader(pdf_input)
+        
+        # PyPDF2の互換性チェック
+        try:
+            pdf_reader = PyPDF2.PdfReader(pdf_input)
+            logger.info(f"PyPDF2でPDF読み込み成功: {len(pdf_reader.pages)}ページ")
+        except Exception as read_error:
+            logger.error(f"PyPDF2 PDF読み込みエラー: {str(read_error)}")
+            raise Exception(f"PDFファイルの読み込みに失敗しました: {str(read_error)}")
+        
         pdf_writer = PyPDF2.PdfWriter()
         
         # 元のページサイズを取得
@@ -272,11 +290,21 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
                 overlay_canvas.rect(0, 0, page_width, bottom_height_pt, fill=1, stroke=1)
                 
                 # 追加の白塗り（確実性を高めるため）
+                # 完全に覆うために、少し大きめの範囲を3重で塗る
                 for i in range(3):
                     y_offset = i * (bottom_height_pt / 3)
-                    overlay_canvas.rect(-5, y_offset, page_width + 10, bottom_height_pt / 3 + 2, fill=1, stroke=0)
+                    overlay_canvas.rect(-10, y_offset - 1, page_width + 20, bottom_height_pt / 3 + 3, fill=1, stroke=0)
+                
+                # さらに確実にするため、フッター全体を覆う大きな白い矩形を最後に追加
+                overlay_canvas.rect(-10, -5, page_width + 20, bottom_height_pt + 10, fill=1, stroke=0)
                 
                 logger.info(f"白塗り矩形: X=0, Y=0, Width={page_width/mm:.1f}mm, Height={bottom_height_pt/mm:.1f}mm")
+                
+                # デバッグ用: 白塗り範囲を赤い枠で囲む（テスト確認用）
+                overlay_canvas.setStrokeColor(colors.red)
+                overlay_canvas.setLineWidth(2)
+                overlay_canvas.rect(0, 0, page_width, bottom_height_pt, fill=0, stroke=1)
+                logger.info("デバッグ: 赤い枠で白塗り範囲をマーキング")
                 
                 # 新しい会社情報を配置
                 add_company_footer(overlay_canvas, company_info, page_width, bottom_height_pt)
@@ -660,8 +688,8 @@ def process_pdf_simple():
             footer_region = detect_footer_region_with_claude(file_data)
             if not footer_region:
                 # フォールバック: デフォルト領域
-                footer_region = {'bottom_height': 25}  # 25mm
-                logger.info("Claude API利用不可、デフォルト領域を使用")
+                footer_region = {'bottom_height': 60, 'confidence': 70}  # 60mm（安全な大きめの値）
+                logger.info("Claude API利用不可、大きめのデフォルト領域(60mm)を使用")
             else:
                 confidence = footer_region.get('confidence', 50)
                 detected_elements = footer_region.get('detected_elements', [])
@@ -673,7 +701,7 @@ def process_pdf_simple():
                 logger.info(f"検出要素: {detected_elements}")
         except Exception as e:
             logger.error(f"フッター検出エラー: {str(e)}")
-            footer_region = {'bottom_height': 25}
+            footer_region = {'bottom_height': 60, 'confidence': 50}  # エラー時も60mm
         
         # PDFを変換
         try:
