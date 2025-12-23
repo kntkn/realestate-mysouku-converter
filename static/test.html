@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PyMuPDF Test</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        .result { margin: 20px 0; padding: 10px; background: #f0f0f0; white-space: pre-wrap; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e9; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <h1>PyMuPDF Test (Clean Environment)</h1>
+    <form>
+        <input type="file" id="pdfFile" accept=".pdf">
+        <button type="button" onclick="testPyMuPDF()">Test PyMuPDF</button>
+    </form>
+    <div id="result" class="result">結果がここに表示されます</div>
+    
+    <script>
+    async function testPyMuPDF() {
+        console.log("🧪 テスト開始");
+        const resultDiv = document.getElementById('result');
+        
+        const file = document.getElementById('pdfFile').files[0];
+        if (!file) {
+            resultDiv.innerHTML = 'PDFファイルを選択してください';
+            resultDiv.className = 'result error';
+            return;
+        }
+        
+        resultDiv.innerHTML = 'テスト実行中...';
+        resultDiv.className = 'result';
+        
+        const formData = new FormData();
+        formData.append('pdf_file', file);
+        
+        try {
+            const response = await fetch('/test_pymupdf_only', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            console.log('✅ テスト結果:', result);
+            
+            resultDiv.innerHTML = JSON.stringify(result, null, 2);
+            resultDiv.className = 'result success';
+            
+        } catch (error) {
+            console.error('❌ エラー:', error);
+            resultDiv.innerHTML = 'エラー: ' + error.message;
+            resultDiv.className = 'result error';
+        }
+    }
+    </script>
+</body>
+</html>

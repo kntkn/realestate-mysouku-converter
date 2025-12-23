@@ -29,11 +29,11 @@
         <div id="pypdf2Result" class="result">まずPDFファイルを選択してください</div>
     </div>
     
-    <!-- Step 3: PyMuPDFテスト -->
+    <!-- Step 3: pdfplumber高精度検出テスト -->
     <div class="test-section">
-        <h3>Step 3: PyMuPDFテスト（新ライブラリ）</h3>
-        <button onclick="testPyMuPDF()" disabled id="testPyMuPDFBtn">PyMuPDFテスト実行</button>
-        <div id="pymupdfResult" class="result">まずPDFファイルを選択してください</div>
+        <h3>Step 3: pdfplumber高精度検出テスト</h3>
+        <button onclick="testPdfPlumber()" disabled id="testPdfPlumberBtn">pdfplumber検出テスト実行</button>
+        <div id="pdfplumberResult" class="result">まずPDFファイルを選択してください</div>
     </div>
     
     <script>
@@ -47,14 +47,14 @@
             
             // テストボタンを有効化
             document.getElementById('testPyPDF2Btn').disabled = false;
-            document.getElementById('testPyMuPDFBtn').disabled = false;
+            document.getElementById('testPdfPlumberBtn').disabled = false;
         } else {
             fileStatus.textContent = 'PDFファイルを選択してください';
             fileStatus.className = 'result';
             
             // テストボタンを無効化
             document.getElementById('testPyPDF2Btn').disabled = true;
-            document.getElementById('testPyMuPDFBtn').disabled = true;
+            document.getElementById('testPdfPlumberBtn').disabled = true;
         }
     });
     
@@ -90,18 +90,18 @@
         }
     }
     
-    async function testPyMuPDF() {
-        const resultDiv = document.getElementById('pymupdfResult');
+    async function testPdfPlumber() {
+        const resultDiv = document.getElementById('pdfplumberResult');
         const file = document.getElementById('pdfFile').files[0];
         
-        resultDiv.textContent = '⏳ PyMuPDFテスト実行中...';
+        resultDiv.textContent = '⏳ pdfplumber検出テスト実行中...';
         resultDiv.className = 'result waiting';
         
         const formData = new FormData();
         formData.append('pdf_file', file);
         
         try {
-            const response = await fetch('/test_pymupdf_only', {
+            const response = await fetch('/test_pdfplumber_detection', {
                 method: 'POST',
                 body: formData
             });
@@ -109,11 +109,11 @@
             const result = await response.json();
             
             if (result.status === 'success') {
-                const pymupdf = result.pymupdf_result;
-                resultDiv.textContent = `✅ PyMuPDF成功!\nフッター高さ: ${pymupdf.bottom_height}mm\n信頼度: ${pymupdf.confidence}%\nキーワード数: ${pymupdf.keywords_found}`;
+                const detection = result.detection_result;
+                resultDiv.textContent = `✅ pdfplumber検出成功!\nフッター高さ: ${detection.bottom_height}mm\n信頼度: ${detection.confidence}%\n検出方法: ${detection.method}\nキーワード数: ${detection.keywords_found}`;
                 resultDiv.className = 'result success';
             } else {
-                resultDiv.textContent = `❌ PyMuPDFエラー:\n${result.message}`;
+                resultDiv.textContent = `❌ pdfplumber検出エラー:\n${result.message}`;
                 resultDiv.className = 'result error';
             }
             

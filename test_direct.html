@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PyMuPDF直接テスト</title>
+</head>
+<body>
+    <h1>PyMuPDF直接テスト</h1>
+    <form id="testForm" enctype="multipart/form-data">
+        <input type="file" id="pdfFile" accept=".pdf" required>
+        <button type="button" onclick="testPyMuPDF()">PyMuPDFテスト実行</button>
+    </form>
+    
+    <div id="result"></div>
+    
+    <script>
+    async function testPyMuPDF() {
+        const file = document.getElementById('pdfFile').files[0];
+        if (!file) {
+            alert('PDFファイルを選択してください');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('pdf_file', file);
+        
+        try {
+            const response = await fetch('https://realestate-mysouku-converter.vercel.app/test_pymupdf_only', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            document.getElementById('result').innerHTML = 
+                '<h3>結果:</h3><pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                
+            console.log('PyMuPDFテスト結果:', result);
+            
+        } catch (error) {
+            document.getElementById('result').innerHTML = 
+                '<h3 style="color: red;">エラー:</h3><p>' + error.message + '</p>';
+        }
+    }
+    </script>
+</body>
+</html>

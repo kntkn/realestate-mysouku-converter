@@ -9,7 +9,6 @@ from werkzeug.utils import secure_filename
 from io import BytesIO
 import PyPDF2
 import pdfplumber
-import fitz  # PyMuPDF
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -272,89 +271,99 @@ def detect_footer_region_with_claude_fallback(pdf_data, page_num=0):
         logger.error(f"Claude API エラー: {str(e)}")
         return None
 
-def detect_footer_region_with_precise_detection(pdf_data, page_num=0):
-    """PyMuPDFを使用してフッター領域を精密検出"""
+def detect_footer_with_pdfplumber(pdf_data, page_num=0):
+    """pdfplumberを使用した高精度フッター検出"""
     try:
-        logger.info("🔍 PyMuPDFモジュール確認")
-        logger.info(f"fitz module: {fitz}")
-        logger.info(f"fitz version: {getattr(fitz, '__version__', 'unknown')}")
+        logger.info("🔍 pdfplumber高精度フッター検出開始")
         
-        # PyMuPDFでPDFを開く
-        logger.info("📄 PDFファイルをPyMuPDFで開いています...")
-        pdf_document = fitz.open(stream=pdf_data, filetype="pdf")
-        logger.info(f"✅ PDF開く成功: {len(pdf_document)}ページ")
-        
-        if page_num >= len(pdf_document):
-            logger.warning(f"指定ページ{page_num}が存在しません。ページ数: {len(pdf_document)}")
-            page_num = 0
+        # pdfplumberでPDF解析
+        with pdfplumber.open(BytesIO(pdf_data)) as pdf:
+            if len(pdf.pages) == 0:
+                logger.warning("⚠️ PDFページなし")
+                return {'bottom_height': 40, 'confidence': 30, 'method': 'fallback'}
             
-        page = pdf_document[page_num]
-        page_height = page.rect.height  # pt単位
-        
-        # 単語レベルでテキストと座標を取得
-        words = page.get_text("words")  # [(x0, y0, x1, y1, "text", block_no, line_no, word_no), ...]
-        logger.info(f"ページ{page_num + 1}: {len(words)}個の単語を検出、ページ高さ{page_height:.1f}pt")
-        
-        # フッター候補キーワードの定義
-        footer_keywords = [
-            "株式会社", "有限会社", "合同会社", "宅建", "免許", "知事", "大臣",
-            "TEL", "FAX", "電話", "仲介", "媒介", "代理", "売主", "AD", "手数料"
-        ]
-        
-        # Y座標でグループ化してフッター候補を検索
-        footer_candidates = []
-        footer_y_positions = []
-        
-        for word in words:
-            x0, y0, x1, y1, text, block_no, line_no, word_no = word
+            page = pdf.pages[page_num]
+            page_height = page.height  # pt単位
+            page_width = page.width
             
-            # フッターキーワードが含まれているかチェック
-            if any(keyword in text for keyword in footer_keywords):
-                footer_candidates.append(word)
-                footer_y_positions.append(y0)
-                logger.info(f"フッターキーワード発見: '{text}' at Y={y0:.1f}")
-        
-        if not footer_candidates:
-            logger.warning("フッターキーワードが見つかりません。デフォルト値を使用")
-            pdf_document.close()
-            return {'bottom_height': 30, 'confidence': 50}
-        
-        # 最も上（Y座標が最小）のフッター要素を特定
-        min_footer_y = min(footer_y_positions)
-        
-        # フッター高さを計算（ページ下部からmin_footer_yまで）
-        footer_height_pt = page_height - min_footer_y
-        footer_height_mm = footer_height_pt * 25.4 / 72  # pt→mm変換
-        
-        # 安全マージンを追加（上方向に5mm拡張）
-        safety_margin_mm = 5
-        final_height_mm = footer_height_mm + safety_margin_mm
-        
-        # 最小・最大値の制限
-        final_height_mm = max(10, min(80, final_height_mm))
-        
-        # 信頼度の計算
-        confidence = min(95, 70 + len(footer_candidates) * 5)
-        
-        logger.info(f"フッター領域検出完了:")
-        logger.info(f"  - 最上フッター位置: Y={min_footer_y:.1f}pt")
-        logger.info(f"  - フッター高さ: {footer_height_pt:.1f}pt = {footer_height_mm:.1f}mm")
-        logger.info(f"  - 安全マージン追加後: {final_height_mm:.1f}mm")
-        logger.info(f"  - 検出キーワード数: {len(footer_candidates)}")
-        logger.info(f"  - 信頼度: {confidence}%")
-        
-        pdf_document.close()
-        
-        return {
-            'bottom_height': round(final_height_mm, 1),
-            'confidence': confidence,
-            'keywords_found': len(footer_candidates),
-            'footer_y_position': min_footer_y
-        }
-        
+            # テキストオブジェクトを取得（座標付き）
+            chars = page.chars
+            logger.info(f"📄 文字数: {len(chars)}")
+            
+            # フッターキーワード
+            footer_keywords = [
+                "株式会社", "有限会社", "合同会社", "宅建", "免許", "知事", "大臣",
+                "TEL", "FAX", "電話", "仲介", "媒介", "代理", "売主", "AD", "手数料",
+                "宅地建物取引業", "不動産", "賃貸", "売買"
+            ]
+            
+            # フッターキーワードを含む文字の位置を検索
+            footer_y_positions = []
+            footer_texts = []
+            
+            for char in chars:
+                text = char.get('text', '')
+                y_pos = char.get('y0', 0)  # 文字の下端
+                
+                if any(keyword in text for keyword in footer_keywords):
+                    footer_y_positions.append(y_pos)
+                    footer_texts.append(text)
+                    logger.info(f"🎯 フッターキーワード発見: '{text}' at Y={y_pos:.1f}")
+            
+            # 下部25%領域内のテキストも考慮
+            bottom_quarter = page_height * 0.75
+            bottom_texts = [char for char in chars if char.get('y0', page_height) > bottom_quarter]
+            
+            if bottom_texts:
+                logger.info(f"📍 下部25%領域のテキスト: {len(bottom_texts)}個")
+                
+            if not footer_y_positions and not bottom_texts:
+                logger.warning("⚠️ フッター情報なし")
+                return {'bottom_height': 25, 'confidence': 40, 'method': 'no_footer_detected'}
+            
+            # フッター高さ計算
+            if footer_y_positions:
+                # キーワードベース
+                min_footer_y = min(footer_y_positions)
+                footer_height_pt = page_height - min_footer_y
+                method = 'keyword_based'
+                confidence = min(90, 70 + len(footer_texts) * 3)
+            else:
+                # 下部テキストベース
+                min_bottom_y = min(char.get('y0', page_height) for char in bottom_texts)
+                footer_height_pt = page_height - min_bottom_y
+                method = 'bottom_text_based'
+                confidence = 60
+            
+            # pt → mm変換
+            footer_height_mm = footer_height_pt * 25.4 / 72
+            
+            # 安全マージン追加
+            final_height_mm = footer_height_mm + 5
+            final_height_mm = max(15, min(70, final_height_mm))  # 15-70mmの範囲
+            
+            result = {
+                'bottom_height': round(final_height_mm, 1),
+                'confidence': confidence,
+                'method': method,
+                'keywords_found': len(footer_texts),
+                'page_height': page_height,
+                'footer_y_position': min_footer_y if footer_y_positions else None,
+                'raw_footer_height_mm': round(footer_height_mm, 1)
+            }
+            
+            logger.info(f"✅ 検出完了: {result}")
+            return result
+            
     except Exception as e:
-        logger.error(f"PyMuPDF フッター検出エラー: {str(e)}")
-        return {'bottom_height': 40, 'confidence': 60}
+        logger.error(f"❌ pdfplumber検出エラー: {e}")
+        return {
+            'bottom_height': 45, 
+            'confidence': 50, 
+            'method': 'error_fallback', 
+            'error': str(e)
+        }
+
 
 def convert_pdf_footer(pdf_data, company_info):
     """PDFのフッター部分を白塗りし、新しい会社情報を配置"""
@@ -383,12 +392,12 @@ def convert_pdf_footer(pdf_data, company_info):
         else:
             page_width, page_height = A4  # デフォルト
         
-        # 新しいPyMuPDF精密検出を使用（全ページ同じ設定で安全動作）
+        # 新しいpdfplumber精密検出を使用（全ページ同じ設定で安全動作）
         # まず精密検出を試行、フォールバックでClaude API
         try:
-            logger.info("🚀 新PyMuPDF精密フッター検出を開始!")
-            global_footer_region = detect_footer_region_with_precise_detection(pdf_data, 0)
-            logger.info(f"🎯 PyMuPDF検出結果: {global_footer_region}")
+            logger.info("🚀 新pdfplumber精密フッター検出を開始!")
+            global_footer_region = detect_footer_with_pdfplumber(pdf_data, 0)
+            logger.info(f"🎯 pdfplumber検出結果: {global_footer_region}")
             
             # 信頼度が低い場合はClaude APIを併用
             if global_footer_region.get('confidence', 0) < 60:
@@ -770,13 +779,12 @@ def test_pypdf2_only():
             'pypdf2_working': False
         })
 
-@app.route('/test_pymupdf_only', methods=['POST'])
-def test_pymupdf_only():
-    """PyMuPDF単体テスト用エンドポイント"""
+@app.route('/test_pdfplumber_detection', methods=['POST'])
+def test_pdfplumber_detection():
+    """pdfplumber高精度検出テスト"""
     try:
-        logger.info("🧪 PyMuPDF単体テスト開始")
+        logger.info("🧪 pdfplumber高精度検出テスト開始")
         
-        # まず基本チェック
         if 'pdf_file' not in request.files:
             return jsonify({'status': 'error', 'message': 'ファイルなし'})
         
@@ -784,64 +792,24 @@ def test_pymupdf_only():
         if file.filename == '':
             return jsonify({'status': 'error', 'message': 'ファイル選択なし'})
         
-        # PyMuPDFインポートテスト
-        try:
-            import fitz
-            pymupdf_version = fitz.version[0] if hasattr(fitz, 'version') else 'unknown'
-            logger.info(f"✅ PyMuPDF import成功: v{pymupdf_version}")
-        except Exception as import_e:
-            logger.error(f"❌ PyMuPDF import失敗: {import_e}")
-            return jsonify({
-                'status': 'error', 
-                'message': f'PyMuPDF import失敗: {str(import_e)}',
-                'import_error': True
-            })
-        
         file_data = file.read()
         logger.info(f"📄 ファイルサイズ: {len(file_data)} bytes")
         
-        # PyMuPDF基本テスト
-        try:
-            pdf_document = fitz.open(stream=file_data, filetype="pdf")
-            page_count = len(pdf_document)
-            logger.info(f"📚 ページ数: {page_count}")
-            
-            if page_count > 0:
-                page = pdf_document[0]
-                page_size = (page.rect.width, page.rect.height)
-                text_blocks = len(page.get_text("blocks"))
-                logger.info(f"📐 ページサイズ: {page_size}")
-                logger.info(f"🔤 テキストブロック数: {text_blocks}")
-            else:
-                page_size = (0, 0)
-                text_blocks = 0
-            
-            pdf_document.close()
-            
-            return jsonify({
-                'status': 'success',
-                'message': 'PyMuPDF基本テスト成功',
-                'pymupdf_version': pymupdf_version,
-                'page_count': page_count,
-                'page_size': page_size,
-                'text_blocks': text_blocks,
-                'file_size': len(file_data)
-            })
-            
-        except Exception as pdf_e:
-            logger.error(f"❌ PyMuPDF PDF処理エラー: {pdf_e}")
-            return jsonify({
-                'status': 'error',
-                'message': f'PyMuPDF PDF処理エラー: {str(pdf_e)}',
-                'pdf_error': True
-            })
-            
+        # 新しい高精度検出機能をテスト
+        result = detect_footer_with_pdfplumber(file_data)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'pdfplumber高精度検出成功',
+            'detection_result': result,
+            'file_size': len(file_data)
+        })
+        
     except Exception as e:
-        logger.error(f"❌ PyMuPDF全般エラー: {e}")
+        logger.error(f"❌ pdfplumber検出エラー: {e}")
         return jsonify({
             'status': 'error',
-            'message': f'PyMuPDF全般エラー: {str(e)}',
-            'general_error': True
+            'message': f'pdfplumber検出エラー: {str(e)}'
         })
 
 @app.route('/')
