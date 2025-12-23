@@ -264,8 +264,19 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
                     bottom_height_pt = safe_height * mm
                 else:
                     bottom_height_pt = detected_height * mm
+                # 確実な白塗り処理（複数の矩形で確実にカバー）
                 overlay_canvas.setFillColor(colors.white)
-                overlay_canvas.rect(0, 0, page_width, bottom_height_pt, fill=1, stroke=0)
+                overlay_canvas.setStrokeColor(colors.white)
+                
+                # メインの白塗り矩形
+                overlay_canvas.rect(0, 0, page_width, bottom_height_pt, fill=1, stroke=1)
+                
+                # 追加の白塗り（確実性を高めるため）
+                for i in range(3):
+                    y_offset = i * (bottom_height_pt / 3)
+                    overlay_canvas.rect(-5, y_offset, page_width + 10, bottom_height_pt / 3 + 2, fill=1, stroke=0)
+                
+                logger.info(f"白塗り矩形: X=0, Y=0, Width={page_width/mm:.1f}mm, Height={bottom_height_pt/mm:.1f}mm")
                 
                 # 新しい会社情報を配置
                 add_company_footer(overlay_canvas, company_info, page_width, bottom_height_pt)
@@ -279,8 +290,25 @@ def convert_pdf_footer(pdf_data, footer_region, company_info):
                 if len(overlay_reader.pages) > 0:
                     overlay_page = overlay_reader.pages[0]
                     
-                    # 元のページとオーバーレイをマージ
-                    page.merge_page(overlay_page)
+                    # デバッグ: オーバーレイ処理の詳細ログ
+                    logger.info(f"ページ{page_num + 1}: 白塗り高さ{bottom_height_pt/mm:.1f}mm、信頼度{confidence}%")
+                    logger.info(f"ページサイズ: {page_width/mm:.1f}mm x {page_height/mm:.1f}mm")
+                    
+                    # 元のページとオーバーレイをマージ（オーバーレイを最前面に）
+                    try:
+                        page.merge_page(overlay_page)
+                        logger.info(f"ページ{page_num + 1}: オーバーレイ合成完了")
+                    except Exception as merge_error:
+                        logger.error(f"ページ{page_num + 1}: merge_page失敗 - {str(merge_error)}")
+                        # フォールバック: 代替方法でオーバーレイを試行
+                        try:
+                            # ReportLabでページ全体を再構築
+                            page = create_page_with_footer_overlay(page, overlay_page, page_width, page_height)
+                            logger.info(f"ページ{page_num + 1}: フォールバック処理で合成完了")
+                        except Exception as fallback_error:
+                            logger.error(f"ページ{page_num + 1}: フォールバック処理も失敗 - {str(fallback_error)}")
+                            # 最後の手段: 元のページをそのまま使用
+                            pass
                 
                 # 処理済みページを追加
                 pdf_writer.add_page(page)
